@@ -1,12 +1,26 @@
 # youhuishou
+
+
 算是一个新项目开始前的小demo,目前只在beta环境写了部分功能
+
+
+
 项目用到的框架：
+
+
+
 okhttp+retrofit2+Rx和OkGo+Rx二选一
 
+
+
  // Plain MVP
+ 
     compile 'com.hannesdorfmann.mosby3:mvp:3.1.0'
+    
     compile 'com.hannesdorfmann.mosby3:mvp-lce:3.1.0'
+    
     compile 'com.hannesdorfmann.mosby3:mvp-nullobject-presenter:3.1.0'
+    
     
  //util
     compile 'com.blankj:utilcode:1.10.0'
