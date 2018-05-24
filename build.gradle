@@ -1,0 +1,44 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    
+    repositories {
+        jcenter()
+        mavenCentral()
+        google()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:2.3.3'
+        classpath 'com.jakewharton:butterknife-gradle-plugin:8.8.1'
+
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
+    }
+}
+
+allprojects {
+    repositories {
+        jcenter()
+        mavenCentral()
+        maven {url "http://mvn.gt.igexin.com/nexus/content/repositories/releases/"}//个推
+        maven { url "https://jitpack.io" }// compile 'com.github.czy1121:update:1.1.1'
+        maven { url 'https://oss.jfrog.org/libs-snapshot' }
+        maven { url "https://oss.sonatype.org/content/repositories/snapshots/" }
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
+
+
+ext {
+
+    // Sdk and tools
+    minSdkVersion = 16
+    targetSdkVersion = 26
+    compileSdkVersion = 26
+    buildToolsVersion = '26.0.1'
+    // App dependencies
+    supportLibraryVersion = '26.+'
+}

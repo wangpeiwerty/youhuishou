@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    >
+
+
+    <com.eleven.mvp.widget.NavigateTabBar
+        android:id="@+id/mainTabBar"
+        android:layout_width="match_parent"
+
+        android:layout_height="@dimen/dp_50"
+        android:layout_alignParentBottom="true"
+        android:background="@android:color/white"
+        app:containerId="@+id/main_container"
+        app:navigateTabSelectedTextColor="@color/comui_tab_select_color"
+        app:navigateTabTextColor="@color/comui_tab_text_color"
+        app:navigateTabTextSize="11sp" />
+    <FrameLayout
+        android:layout_above="@+id/mainTabBar"
+        android:id="@+id/main_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        />
+</RelativeLayout>

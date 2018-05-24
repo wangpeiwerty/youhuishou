@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#287CEE</color>
+    <color name="colorPrimaryDark">#303F9F</color>
+    <color name="colorAccent">#FF4081</color>
+
+    <!-- 边框颜色 -->
+    <color name="border">#C0B9B3</color>
+    <!-- sidebar选中文字颜色 -->
+    <color name="sidebar_selected_background">#3399FF</color>
+    <!-- sidebar的蓝色字体颜色 -->
+    <color name="sidebar_char_color">#635952</color>
+    <!-- 目录选中的颜色 -->
+    <color name="sort_list_selected">#E7DDDE</color>
+
+    <!--TabBar 字体颜色-->
+    <color name="comui_tab_text_color">#666666</color>
+    <color name="comui_tab_select_color">#287CEE</color>
+
+    <color name="bg_white_gray_color">#F6F6F6</color>
+
+    <color name="text_gray_color">#666666</color>
+    <color name="text_gray_title_color">#888888</color>
+
+    <color name="text_black_color">#3A3A3A</color>
+    <color name="hint_color">#999999</color>
+    <color name="line_gray">#D6D6D6</color>
+    <color name="line_gray_bg">#F0F0F0</color>
+
+    <color name="white">#ffffffff</color>
+    <color name="black">#ff000000</color>
+    <color name="blue">#ff75a6ff</color>
+    <color name="red">#E1423C</color>
+    <color name="translucence">#506050</color>
+    <color name="bg_gray">#F5F5F5</color>
+    <color name="green">#65e17b</color>
+
+    <color name="black_transparency_10">#1A000000</color>
+    <color name="black_transparency_40">#66000000</color>
+    <color name="black_transparency_50">#80000000</color>
+    <color name="black_transparency_60">#99000000</color>
+    <color name="black_transparency_80">#CC000000</color>
+    <color name="black_transparency_90">#E6000000</color>
+</resources>
