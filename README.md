@@ -92,3 +92,6 @@ okhttp+retrofit2+Rx和OkGo+Rx二选一
  //pickview
  
     compile 'com.airsaid.library:pickerview:1.0.3'
+    
+//版本控制
+https://www.jianshu.com/p/a9f8e9346495
