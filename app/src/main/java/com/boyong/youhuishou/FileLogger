@@ -1,0 +1,121 @@
+//设为false关闭日志
+    private static final boolean LOG_ENABLE = false;
+
+
+
+    /**
+     * 将上传结果保存到本地文件
+     */
+    public static void saveOperateData(Context context,String data, String path) {
+        try {
+            String storageState = Environment.getExternalStorageState();
+            if (storageState.equals(Environment.MEDIA_MOUNTED)) {
+                File fileParent = new File(path);
+                if (!fileParent.exists()) {
+                    fileParent.mkdir();
+                }
+                int month = CalendaAndTime.getMonth() + 1;
+                File file = new File(path + month + File.separator);
+                if (!file.exists()) {
+                    file.mkdirs();
+                }
+                String day = CalendaAndTime.getDay();
+                File fileChild = new File(path + month + File.separator + day + ".txt");
+                StringBuffer sb = new StringBuffer();
+                if (!fileChild.exists()) {
+                    fileChild.createNewFile();
+                    sb.append("数据上传返回备份");
+                    sb.append(CalendaAndTime.getDataLong());
+                    sb.append("\r\n");
+                    sb.append(SharedPreferencesHelper.getInstance(context).getString(CustomUtils.PDA_SN));
+                    sb.append(",");
+                    sb.append(SharedPreferencesHelper.getInstance(context).getString(CustomUtils.SITE_CODE));
+                    sb.append(",版本 ");
+                    sb.append(AppConfig.versionName);
+                    sb.append("\r\n");
+                }
+                sb.append((data + "\r\n"));
+                sb.append("========================\r\n");
+                FileOutputStream fos = new FileOutputStream(fileChild, true);
+                fos.write(sb.toString().getBytes("utf-8"));
+                fos.flush();
+                fos.close();
+                fos = null;
+                sb = null;
+
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 将上传结果保存到本地文件
+     */
+    public static void saveTrafficInfoData(Context context,String data, String path) {
+        try {
+            String storageState = Environment.getExternalStorageState();
+            if (storageState.equals(Environment.MEDIA_MOUNTED)) {
+                File fileParent = new File(path);
+                if (!fileParent.exists()) {
+                    fileParent.mkdir();
+                }
+                int month = CalendaAndTime.getMonth() + 1;
+                File file = new File(path + month + File.separator);
+                if (!file.exists()) {
+                    file.mkdirs();
+                }
+                String day = CalendaAndTime.getDay();
+                File fileChild = new File(path + month + File.separator + day + ".txt");
+                StringBuffer sb = new StringBuffer();
+                if (!fileChild.exists()) {
+                    fileChild.createNewFile();
+                    sb.append("数据上传返回备份");
+                    sb.append(CalendaAndTime.getDataLong());
+                    sb.append("\r\n");
+                    sb.append(SharedPreferencesHelper.getInstance(context).getString(CustomUtils.PDA_SN));
+                    sb.append(",");
+                    sb.append(SharedPreferencesHelper.getInstance(context).getString(CustomUtils.SITE_CODE));
+                    sb.append(",版本 ");
+                    sb.append(AppConfig.versionName);
+                    sb.append("\r\n");
+                }
+                sb.append((data + "\r\n"));
+                sb.append("========================\r\n");
+                FileOutputStream fos = new FileOutputStream(fileChild, true);
+                fos.write(sb.toString().getBytes("utf-8"));
+                fos.flush();
+                fos.close();
+                fos = null;
+                sb = null;
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void i(String tag, String msg){
+        if (LOG_ENABLE){
+            Log.i(tag, msg);
+        }
+    }
+    public static void v(String tag, String msg){
+        if (LOG_ENABLE){
+            Log.v(tag, msg);
+        }
+    }
+    public static void d(String tag, String msg){
+        if (LOG_ENABLE){
+            Log.d(tag, msg);
+        }
+    }
+    public static void w(String tag, String msg){
+        if (LOG_ENABLE){
+            Log.w(tag, msg);
+        }
+    }
+    public static void e(String tag, String msg){
+        if (LOG_ENABLE){
+            Log.e(tag, msg);
+        }
+    }
