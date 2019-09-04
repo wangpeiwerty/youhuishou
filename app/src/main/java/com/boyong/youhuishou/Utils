@@ -1,0 +1,3138 @@
+   public final static String DEFAULT_UPLOAD_RESULT_PATH = Environment
+            .getExternalStorageDirectory()
+            + File.separator
+            + rootPath
+            + File.separator
+            + "uploaddata" + File.separator;
+            
+   FileLogger.saveOperateData(UploadDataService.this, "开始准备离线上传:" + CalendaAndTime.getTimeLongWithSpe() + unuploadData.getScanType() + ",单号=" + unuploadData.getBarcode(), AppConfig.DEFAULT_UPLOAD_RESULT_PATH);
+
+/**
+     * 获取一条离线未上传的数据
+     *
+     * @param context
+     * @return
+     */
+    public ScanData getOneUnlineUnuploadData(Context context, int count, int offset) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.IsOnline.eq("0"),
+                    ScanDataDao.Properties.Upload.notEq("true"),
+                    ScanDataDao.Properties.UploadFileCount.lt(count)));
+            qb.limit(1);
+            qb.offset(offset);
+            List<ScanData> list = qb.build().list();
+            return list != null && list.size() > 0 ? list.get(0) : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+    
+     /**
+     * 处理上传上传数据
+     * 先获取离线数据 有离线数据则走离线上传接口
+     * 没有离线数据则从数据库中查询未上传或者上传失败的数据，一条条上传数据
+     */
+    public void dealData() {
+        ScanData unuploadData = ScanDataDaoOpe.getInstance().getOneUnlineUnuploadData(this, 3, offset);
+        if (unuploadData != null) {
+            Logger.saveOperateData(UploadDataService.this, "开始准备离线上传:" + CalendaAndTime.getTimeLongWithSpe() + unuploadData.getScanType() + ",单号=" + unuploadData.getBarcode(), AppConfig.DEFAULT_UPLOAD_RESULT_PATH);
+            String scanType = unuploadData.getScanType();
+            if (!TextUtils.isEmpty(scanType)) {
+                uploaddata();
+            }
+        } else {
+            isStart = true;
+            offset = 0;
+        }
+    }
+    
+    package com.otp.hht.pda.db.dao;
+
+import android.content.Context;
+import android.database.Cursor;
+import android.text.TextUtils;
+
+import com.otp.hht.pda.R;
+import com.otp.hht.pda.db.ytosysdb.ScanData;
+import com.otp.hht.pda.db.ytosysdb.ScanDataDao;
+import com.otp.hht.pda.tool.CalendaAndTime;
+import com.otp.hht.pda.tool.DateUtil;
+import com.otp.hht.pda.tool.RuleUtils;
+import com.otp.hht.pda.tool.StringUtils;
+import com.otp.hht.pda.ui.pda.AppConfig;
+
+import org.greenrobot.greendao.query.DeleteQuery;
+import org.greenrobot.greendao.query.QueryBuilder;
+import org.greenrobot.greendao.query.WhereCondition;
+
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+
+/**
+ * 扫描数据操作类
+ */
+public class ScanDataDaoOpe {
+    private static ScanDataDaoOpe scandataDaoOpe;
+    public final static int SUCCESS = 0;//成功
+    public final static int REPAET = 1;//重复
+    public final static int ERROR = -1;//错误
+    public final static int NOT_EXIST = 2;//数据不存在
+    public final static int UPLOADED = 3;//数据已上传
+
+    public static ScanDataDaoOpe getInstance(Context context) {
+        if (null == scandataDaoOpe) {
+            synchronized (ScanDataDaoOpe.class) {
+                if (null == scandataDaoOpe) {
+                    scandataDaoOpe = new ScanDataDaoOpe();
+                }
+            }
+        }
+        return scandataDaoOpe;
+    }
+
+    public static ScanDataDaoOpe getInstance() {
+        if (null == scandataDaoOpe) {
+            synchronized (ScanDataDaoOpe.class) {
+                if (null == scandataDaoOpe) {
+                    scandataDaoOpe = new ScanDataDaoOpe();
+                }
+            }
+        }
+        return scandataDaoOpe;
+    }
+
+    /**
+     * 获取所有数据
+     *
+     * @return
+     */
+    public List<ScanData> getAll(Context context) {
+        try {
+            List<ScanData> list = ScanDbManager.getDaoSession(context).getScanDataDao().loadAll();
+            return list;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 删除所有的数据
+     *
+     * @param context
+     */
+    public void deleteAll(Context context) {
+        try {
+            ScanDbManager.getDaoSession(context).getScanDataDao().deleteAll();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 批量删除数据
+     *
+     * @param context
+     * @param list
+     * @return
+     */
+    public int deleteBatchData(Context context, List<ScanData> list) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            if (list != null && list.size() > 0) {
+                dao.deleteInTx(list);
+                return SUCCESS;
+            } else
+                return ERROR;
+        } catch (Exception e) {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 通过类型和手机号获取扫描数据
+     *
+     * @param context
+     * @return
+     */
+    public List<ScanData> getScanDataByScanTypeAndPhone(Context context, String phone, String inDate, String scantype, String scanUser) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(scantype), ScanDataDao.Properties.Date.gt(inDate),
+                    ScanDataDao.Properties.SendPhone.like("%" + phone + "%"),
+                    ScanDataDao.Properties.ScanUser.eq(scanUser)));
+            List<ScanData> list = qb.build().list();
+            return list != null && list.size() > 0 ? list : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+
+    /**
+     * 删除已操作minute分钟后的已上传数据
+     *
+     * @param context
+     * @param minute
+     * @return
+     */
+    public int deleteHasUploadDataAfterMinute(Context context, int minute) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(ScanDataDao.Properties.Upload.eq("true"));
+            if (minute > 0) {
+                minute = 0 - minute;
+            }
+            Date date = DateUtil.addMinus(minute);
+            String dateStr = CalendaAndTime.getTimeLongWithSpe(date.getTime());
+            qb.where(ScanDataDao.Properties.Date.lt(dateStr));
+            DeleteQuery<ScanData> dq = qb.buildDelete();
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                dq.executeDeleteWithoutDetachingEntities();
+            }
+            return SUCCESS;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+    }
+
+    /**
+     * 删除已操作day天后的已上传数据
+     *
+     * @param context
+     * @param day     天数
+     * @return
+     */
+    public int deleteHasUploadDataAfterDay(Context context, int day) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(ScanDataDao.Properties.Upload.eq("true"));
+            if (day > 0) {
+                day = 0 - day;
+            }
+            Date date = DateUtil.addDays(day);
+            String dateStr = CalendaAndTime.getTimeLongWithSpe(date.getTime());
+            qb.where(ScanDataDao.Properties.Date.lt(dateStr));
+            DeleteQuery<ScanData> dq = qb.buildDelete();
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                dq.executeDeleteWithoutDetachingEntities();
+            }
+            return SUCCESS;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+    }
+
+    /**
+     * 删除数据
+     *
+     * @param context
+     * @param scanData
+     * @return
+     */
+    public int deleteData(Context context, ScanData scanData) {
+        try {
+            if (scanData != null) {
+                ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+                ScanData data = getScanData(context, scanData);
+                if (data != null) {
+                    if ("false".equals(data.getUpload()) || "fail".equals(data.getUpload())) {
+                        dao.delete(data);
+                        return SUCCESS;
+                    } else
+                        return UPLOADED;
+                } else
+                    return NOT_EXIST;
+            } else
+                return ERROR;
+        } catch (Exception e) {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 删除数据
+     *
+     * @param context
+     * @param
+     * @return
+     */
+    public int deleteData(Context context, String barcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            ScanData data = getScanData(context, barcode, scanType);
+            if (data != null) {
+                if (data.getUpload().equals("false")) {
+                    dao.delete(data);
+                    return SUCCESS;
+                } else
+                    return UPLOADED;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 删除数据
+     *
+     * @param context
+     * @param
+     * @return
+     */
+    public int deleteDatas(Context context, String barcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            ScanData data = getScanData(context, barcode, scanType);
+            if (data != null) {
+                dao.delete(data);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 删除数据（航空）
+     *
+     * @param context
+     * @param
+     * @return
+     */
+    public int deleteFlightData(Context context, String flightOrderId, String barcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            ScanData data=null;
+            if(StringUtils.isEmpty(flightOrderId)){
+                data = getScanData(context, barcode, scanType);
+            }else{
+                data = getFlightScanData(context, flightOrderId, barcode, scanType);
+            }
+            if (data != null) {
+                dao.delete(data);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            return ERROR;
+        }
+    }
+
+
+    /**
+     * 删除数据(建包)
+     *
+     * @param context
+     * @param
+     * @return
+     */
+    public int deleteBBData(Context context, String baoSign, String barcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            ScanData data = getBBScanData(context, baoSign, barcode, scanType);
+            if (data != null) {
+                dao.delete(data);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 删除数据(上车)
+     *
+     * @param context
+     * @param
+     * @return
+     */
+    public int deleteAboardData(Context context, String carsign, String barcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            ScanData data = getAboardScanData(context, carsign, barcode, scanType);
+            if (data != null) {
+                dao.delete(data);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 删除数据(封发车，到解车)
+     *
+     * @param context
+     * @param
+     * @return
+     */
+    public int deleteCarData(Context context, String carNo, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            ScanData data = getCarScanData(context, carNo, scanType);
+            if (data != null) {
+                dao.delete(data);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            return ERROR;
+        }
+    }
+
+    public ScanData getScanData(Context context, ScanData scanData) {
+        if ((context.getString(R.string.depart)).equals(scanData.getScanType()) || (context.getString(R.string.car_breaking)).equals(scanData.getScanType())) {
+            return getScanData2(context, scanData.getCarQianNo(), scanData.getScanType());
+        } else if (context.getString(R.string.debus).equals(scanData.getScanType())
+                || context.getString(R.string.aboard).equals(scanData.getScanType())
+                || context.getString(R.string.aboard_delete).equals(scanData.getScanType())
+        ) {
+            return getAboardScanData1(context, scanData.getCarQianNo(), scanData.getBarcode(), scanData.getScanType());
+        } else if (context.getString(R.string.air_out_ship).equals(scanData.getScanType())
+                || context.getString(R.string.air_out_ship_delete).equals(scanData.getScanType())
+                || context.getString(R.string.air_hand_ship).equals(scanData.getScanType())
+                || context.getString(R.string.air_hand_ship_delete).equals(scanData.getScanType())
+                || context.getString(R.string.air_ar).equals(scanData.getScanType())
+                || context.getString(R.string.air_send).equals(scanData.getScanType())
+                || context.getString(R.string.air_send_del).equals(scanData.getScanType())
+                || context.getString(R.string.air_hand_rec).equals(scanData.getScanType())
+                || context.getString(R.string.air_delivery).equals(scanData.getScanType())) {
+            return getFlightScanData1(context, scanData.getAirOrderId(), scanData.getBarcode(), scanData.getScanType());
+        } else if (context.getString(R.string.build_bag).equals(scanData.getScanType())
+                || context.getString(R.string.dismantling).equals(scanData.getScanType())
+                || context.getString(R.string.build_bag_delete).equals(scanData.getScanType())) {
+            return getBBScanData1(context, scanData.getBagQianNo(), scanData.getBarcode(), scanData.getScanType());
+        }
+        return getScanDataUnUnpload(context, scanData.getBarcode(), scanData.getScanType());
+    }
+
+    /**
+     * 获取上传3次的离线数据
+     *
+     * @param context
+     * @return
+     */
+    public List<ScanData> getUpload3Data(Context context) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.IsOnline.eq("0"), ScanDataDao.Properties.UploadFileCount.eq(3)));
+            List<ScanData> scanDatas = qb.build().list();
+            return scanDatas != null && scanDatas.size() > 0 ? scanDatas : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * 是否存在某条数据
+     *
+     * @param scanData
+     * @return
+     */
+    public boolean isHasScanData(Context context, ScanData scanData) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(scanData
+                .getBarcode()), ScanDataDao.Properties.ScanType
+                .eq(scanData.getScanType())));
+
+        List list = qb.list();
+        if (list == null) {
+            return false;
+        }
+        return list.size() > 0;
+    }
+
+    /**
+     * 是否存在某条数据
+     *
+     * @param scanData
+     * @return
+     */
+    public boolean isHasScanData1(Context context, ScanData scanData) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(scanData
+                .getBarcode()), ScanDataDao.Properties.ScanType
+                .eq(scanData.getScanType()), ScanDataDao.Properties.Remark2.eq(scanData.getRemark2())));
+
+        List list = qb.list();
+        if (list == null) {
+            return false;
+        }
+        return list.size() > 0;
+    }
+
+    /**
+     * 10秒内是否存在某条数据
+     *
+     * @param scanData
+     * @return
+     */
+    public boolean isHasScanDataInTenSeconds(Context context, ScanData scanData) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        Date date = null;
+        try {
+            date = sdf.parse(scanData.getDate());
+            String dateStr = CalendaAndTime.getTimeLongWithSpe(date.getTime() - 10 * 1000);
+            qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(scanData
+                    .getBarcode()), ScanDataDao.Properties.ScanType
+                    .eq(scanData.getScanType()), ScanDataDao.Properties.Date.ge(dateStr)));
+
+            List list = qb.list();
+            if (list == null) {
+                return false;
+            }
+            return list.size() > 0;
+        } catch (ParseException e) {
+            e.printStackTrace();
+        }
+        return false;
+
+    }
+
+    /**
+     * 同一个人是否存在某条数据
+     *
+     * @param scanData
+     * @return
+     */
+    public boolean isHasScanDataByOneUser(Context context, ScanData scanData) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+
+        qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(scanData
+                .getBarcode()), ScanDataDao.Properties.ScanType
+                .eq(scanData.getScanType()), ScanDataDao.Properties.DispatchUser.eq(scanData
+                .getDispatchUser())));
+
+        List list = qb.list();
+        if (list == null) {
+            return false;
+        }
+        return list.size() > 0;
+
+
+    }
+
+    /**
+     * 是否存在某条数据(建包,建包删除，拆包)
+     *
+     * @param scanData
+     * @return
+     */
+    public boolean isHasBagScanData(Context context, ScanData scanData) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(qb.and(ScanDataDao.Properties.BagQianNo.eq(scanData
+                .getBagQianNo()), ScanDataDao.Properties.Barcode.eq(scanData
+                .getBarcode()), ScanDataDao.Properties.ScanType
+                .eq(scanData.getScanType())));
+
+        List list = qb.list();
+        if (list == null) {
+            return false;
+        }
+        return list.size() > 0;
+    }
+
+    /**
+     * 是否存在某条数据(上车)
+     *
+     * @param scanData
+     * @return
+     */
+    public boolean isHasAboardScanData(Context context, ScanData scanData) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(qb.and(ScanDataDao.Properties.CarQianNo.eq(scanData
+                .getCarQianNo()), ScanDataDao.Properties.Barcode.eq(scanData
+                .getBarcode()), ScanDataDao.Properties.ScanType
+                .eq(scanData.getScanType())));
+
+        List list = qb.list();
+        if (list == null) {
+            return false;
+        }
+        return list.size() > 0;
+    }
+
+    /**
+     * 是否存在某条数据(航空操作)
+     *
+     * @param scanData
+     * @return
+     */
+    public boolean isHasAirScanData(Context context, ScanData scanData) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(qb.and(ScanDataDao.Properties.AirOrderId.eq(scanData.getAirOrderId()),
+                ScanDataDao.Properties.Barcode.eq(scanData.getBarcode()),
+                ScanDataDao.Properties.ScanType.eq(scanData.getScanType()),
+                ScanDataDao.Properties.ScanStation.eq(scanData.getScanStation())));
+
+        List list = qb.list();
+        if (list == null) {
+            return false;
+        }
+        return list.size() > 0;
+    }
+
+    /**
+     * 是否存在某条数据(上车删除，下车)
+     *
+     * @param scanData
+     * @return
+     */
+    public boolean isHasCarScanData(Context context, ScanData scanData) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(qb.and(ScanDataDao.Properties.CarQianNo.eq(scanData
+                .getCarQianNo()), ScanDataDao.Properties.Barcode.eq(scanData
+                .getBarcode()), ScanDataDao.Properties.ScanType
+                .eq(scanData.getScanType())));
+
+        List list = qb.list();
+        if (list == null) {
+            return false;
+        }
+        return list.size() > 0;
+    }
+
+    /**
+     * 是否存在某条数据(上车删除，下车)
+     *
+     * @param scanData
+     * @return
+     */
+    public boolean isHasBarcodeScanData(Context context, ScanData scanData) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(scanData.getBarcode()),
+                ScanDataDao.Properties.ScanType.eq(scanData.getScanType())),
+                ScanDataDao.Properties.ScanStation.eq(scanData.getScanStation()));
+
+
+        List list = qb.list();
+        if (list == null) {
+            return false;
+        }
+        return list.size() > 0;
+    }
+
+    /**
+     * 是否存在某条数据(封发车和到解车)
+     *
+     * @param scanData
+     * @return
+     */
+    public boolean isHasScanDatas(Context context, ScanData scanData) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(qb.and(ScanDataDao.Properties.CarQianNo.eq(scanData
+                .getCarQianNo()), ScanDataDao.Properties.RouteCode.eq(scanData
+                .getRouteCode()), ScanDataDao.Properties.ScanType
+                .eq(scanData.getScanType())));
+
+        List list = qb.list();
+        if (list == null) {
+            return false;
+        }
+        return list.size() > 0;
+    }
+
+    /**
+     * 是否存在某条数据
+     *
+     * @return
+     */
+    public boolean isHasScanData(Context context, String barcode, String scanType) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(barcode),
+                ScanDataDao.Properties.ScanType.eq(scanType)));
+
+        List list = qb.list();
+        if (list == null) {
+            return false;
+        }
+        return list.size() > 0;
+    }
+
+    /**
+     * 数据入库
+     *
+     * @param scanData
+     * @return
+     */
+    public synchronized int addScanData(Context context, ScanData scanData) {
+        if (scanData != null) {
+            String scanType = scanData.getScanType();
+            String isUpload = scanData.getUpload();
+            if (!isHasScanData(context, scanData)) {
+                ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+                long i = dao.insert(scanData);
+                scanData = null;
+                return SUCCESS;
+            } else {
+                scanData = null;
+                return REPAET;
+            }
+        } else {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 数据入库-转网和代派上车
+     *
+     * @param scanData
+     * @return
+     */
+    public synchronized int addScanData2(Context context, ScanData scanData) {
+        if (scanData != null) {
+            String scanType = scanData.getScanType();
+            String isUpload = scanData.getUpload();
+            if (!isHasScanData1(context, scanData)) {
+                ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+                long i = dao.insert(scanData);
+                scanData = null;
+                return SUCCESS;
+            } else {
+                scanData = null;
+                return REPAET;
+            }
+        } else {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 数据入库(建包，建包删除，拆包)
+     *
+     * @param scanData
+     * @return
+     */
+    public synchronized int addBagScanData(Context context, ScanData scanData) {
+        if (scanData != null) {
+            String scanType = scanData.getScanType();
+            String isUpload = scanData.getUpload();
+            if (!isHasBagScanData(context, scanData)) {
+                ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+                long i = dao.insert(scanData);
+                scanData = null;
+                return SUCCESS;
+            } else {
+                scanData = null;
+                return REPAET;
+            }
+        } else {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 数据入库(上车)
+     *
+     * @param scanData
+     * @return
+     */
+    public synchronized int addAboardScanData(Context context, ScanData scanData) {
+        if (scanData != null) {
+            if (!isHasAboardScanData(context, scanData)) {
+                ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+                long i = dao.insert(scanData);
+                scanData = null;
+                return SUCCESS;
+            } else {
+                scanData = null;
+                return REPAET;
+            }
+        } else {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 数据入库(航空操作)
+     *
+     * @param scanData
+     * @return
+     */
+    public synchronized int addAirScanData(Context context, ScanData scanData) {
+        if (scanData != null) {
+            if (StringUtils.isEmpty(scanData.getAirOrderId())) {
+                if (!isHasBarcodeScanData(context, scanData)) {
+                    ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+                    dao.insert(scanData);
+                    scanData = null;
+                    return SUCCESS;
+                } else {
+                    scanData = null;
+                    return REPAET;
+                }
+            } else {
+                if (!isHasAirScanData(context, scanData)) {
+                    ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+                    dao.insert(scanData);
+                    scanData = null;
+                    return SUCCESS;
+                } else {
+                    scanData = null;
+                    return REPAET;
+                }
+            }
+        } else {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 数据入库(航空操作)
+     *
+     * @param scanData
+     * @return
+     */
+    public synchronized int addAirScanDataUnLine(Context context, ScanData scanData) {
+        if (scanData != null) {
+            if (!isHasBarcodeScanData(context, scanData)) {
+                ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+                long i = dao.insert(scanData);
+                scanData = null;
+                return SUCCESS;
+            } else {
+                scanData = null;
+                return REPAET;
+            }
+        } else {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 数据入库(上车删除，下车)
+     *
+     * @param scanData
+     * @return
+     */
+    public synchronized int addCarScanData(Context context, ScanData scanData) {
+        if (scanData != null) {
+            String scanType = scanData.getScanType();
+            String isUpload = scanData.getUpload();
+            if (!isHasCarScanData(context, scanData)) {
+                ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+                long i = dao.insert(scanData);
+                scanData = null;
+                return SUCCESS;
+            } else {
+                scanData = null;
+                return REPAET;
+            }
+        } else {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 数据入库
+     * 不检验重复
+     *
+     * @param scanData
+     * @return
+     */
+    public synchronized int addScanData1(Context context, ScanData scanData) {
+        if (scanData != null) {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            dao.insert(scanData);
+            scanData = null;
+            return SUCCESS;
+        } else {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 数据入库(封发车和到解车)
+     *
+     * @param scanData
+     * @return
+     */
+    public synchronized int addScanDatas(Context context, ScanData scanData) {
+        if (scanData != null) {
+            String scanType = scanData.getScanType();
+            String isUpload = scanData.getUpload();
+            if (!isHasScanDatas(context, scanData)) {
+                ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+                long i = dao.insert(scanData);
+                scanData = null;
+                return SUCCESS;
+            } else {
+                scanData = null;
+                return REPAET;
+            }
+        } else {
+            return ERROR;
+        }
+    }
+
+    /**
+     * 批量增加
+     *
+     * @param scanDatas
+     */
+    public synchronized void addBatchScanData(Context context, List<ScanData> scanDatas) {
+        if (scanDatas != null && scanDatas.size() > 0) {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            dao.insertInTx(scanDatas);
+            for (ScanData sdb : scanDatas) {
+                sdb = null;
+            }
+            scanDatas = null;
+        }
+
+    }
+
+    public int updateScanData1(Context context, ScanData scanData) {
+        try {
+            if (scanData != null) {
+                ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+                dao.update(scanData);
+                return SUCCESS;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+        return ERROR;
+    }
+
+    public int updateScanData2(Context context, ScanData scanData) {
+        try {
+            if (scanData != null) {
+                ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+                ScanData scanData1 = getScanData(context, scanData);
+                if (scanData1 != null) {
+                    scanData1.setUpload("true");
+                    dao.update(scanData1);
+                }
+                return SUCCESS;
+            } else {
+                return ERROR;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+    }
+
+    /**
+     * 更新数据
+     *
+     * @param scanData
+     */
+    public synchronized void updateScanData(Context context, ScanData scanData) {
+        if (scanData != null) {
+            ScanData sd = getScanData(context, scanData.getBarcode(),
+                    scanData.getScanType(), scanData.getDate());
+            if (sd != null) {
+                ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+                sd.setDate(scanData.getDate());
+                sd.setVerNo(scanData.getVerNo());
+                sd.setDeviceCode(scanData.getDeviceCode());
+                sd.setUpload(scanData.getUpload());
+                sd.setScanStation(scanData.getScanStation());
+                sd.setScanStationName(scanData.getScanStationName());
+                sd.setScanUser(scanData.getScanUser());
+                sd.setScanUserName(scanData.getScanUserName());
+                sd.setDispatchUser(scanData.getDispatchUser());
+                sd.setDispatchUserName(scanData.getDispatchUserName());
+                sd.setBarcode(scanData.getBarcode());
+                sd.setParentBarcode(scanData.getParentBarcode());
+                sd.setCrWeight(scanData.getCrWeight());
+                sd.setSrWeight(scanData.getSrWeight());
+                sd.setVolWeight(scanData.getVolWeight());
+                sd.setLength(scanData.getLength());
+                sd.setWidth(scanData.getWidth());
+                sd.setHeight(sd.getHeight());
+                sd.setVol(scanData.getVol());
+                sd.setPayType(scanData.getPayType());
+                sd.setScanType(scanData.getScanType());
+                sd.setBagQianNo(scanData.getBagQianNo());
+                sd.setCarQianNo(scanData.getCarQianNo());
+                sd.setCarCode(scanData.getCarCode());
+                sd.setRouteCode(scanData.getRouteCode());
+                sd.setLineName(scanData.getLineName());
+                sd.setCustomerNO(scanData.getCustomerNO());
+                sd.setContraband(scanData.getContraband());
+                sd.setQianFengNo(scanData.getQianFengNo());
+                sd.setQianFengNoTwo(scanData.getQianFengNoTwo());
+                sd.setQianFengState(scanData.getQianFengState());
+                sd.setSealBreakReason(scanData.getSealBreakReason());
+                sd.setNextOrLastStation(scanData.getNextOrLastStation());
+                sd.setSendMan(scanData.getSendMan());
+                sd.setSendPhone(scanData.getSendPhone());
+                sd.setSendPro(scanData.getSendPro());
+                sd.setSendCity(scanData.getSendCity());
+                sd.setSendCounty(scanData.getSendCounty());
+                sd.setSendCounty(scanData.getSendCounty());
+                sd.setReceiveMan(scanData.getReceiveMan());
+                sd.setReceivePhone(scanData.getReceivePhone());
+                sd.setReceivePro(scanData.getReceivePro());
+                sd.setReceiveCity(scanData.getReceiveCity());
+                sd.setReceiveCounty(scanData.getReceiveCounty());
+                sd.setOpCode(scanData.getOpCode());
+                sd.setDesOrgCode(scanData.getDesOrgCode());
+                sd.setCustomerName(scanData.getCustomerName());
+
+                sd.setSignName(scanData.getSignName());
+                sd.setSignexcreason(scanData.getSignexcreason());
+                sd.setSignexcreasonCode(scanData.getSignexcreasonCode());
+                sd.setSignexcreasonRemark(scanData.getSignexcreasonRemark());
+                sd.setRetentionReason(scanData.getRetentionReason());
+                sd.setRetentionReasonCode(scanData.getRetentionReasonCode());
+                sd.setRetentionReasonRemark(scanData.getRetentionReasonRemark());
+                sd.setTjjRemark(scanData.getTjjRemark());
+                sd.setIsFirstUpload(scanData.getIsFirstUpload());
+                sd.setIsPackage(scanData.getIsPackage());
+                sd.setParIndex(scanData.getParIndex());
+                sd.setAirForbidden(scanData.getAirForbidden());
+                sd.setChildParentAllNumbers(scanData.getChildParentAllNumbers());
+                sd.setRemark1(scanData.getRemark1());
+                sd.setRemark2(scanData.getRemark2());
+                sd.setRemark3(scanData.getRemark3());
+                sd.setRemark4(scanData.getRemark4());
+                sd.setRemark5(scanData.getRemark5());
+                dao.update(sd);
+            }
+        }
+    }
+
+    /**
+     * 更新上传状态为true（建包和拆包）
+     *
+     * @param
+     */
+    public synchronized int updateUploadState(Context context, String type, String bagNum, String barcode) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(type),
+                    ScanDataDao.Properties.BagQianNo.eq(bagNum),
+                    ScanDataDao.Properties.Barcode.eq(barcode)));
+            List<ScanData> lis = qb.build().list();
+            if (lis != null && lis.size() > 0) {
+                ScanData sd = lis.get(0);
+                sd.setUpload("true");
+                scanDataDao.update(sd);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+
+    }
+
+    /**
+     * 更新上传状态为fail（建包和拆包）
+     *
+     * @param
+     */
+    public synchronized int updateUploadStates(Context context, String type, String bagNum, String barcode) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(type),
+                    ScanDataDao.Properties.BagQianNo.eq(bagNum),
+                    ScanDataDao.Properties.Barcode.eq(barcode)));
+            List<ScanData> lis = qb.build().list();
+            if (lis != null && lis.size() > 0) {
+                ScanData sd = lis.get(0);
+                sd.setUpload("fail");
+                scanDataDao.update(sd);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+    }
+
+    /**
+     * 更新数据状态为为离线 0（建包和拆包）
+     *
+     * @param
+     */
+    public synchronized int updateisOnlineState(Context context, String type, String bagNum, String barcode) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(type),
+                    ScanDataDao.Properties.BagQianNo.eq(bagNum),
+                    ScanDataDao.Properties.Barcode.eq(barcode)));
+            List<ScanData> lis = qb.build().list();
+            if (lis != null && lis.size() > 0) {
+                ScanData sd = lis.get(0);
+                sd.setIsOnline("0");
+                scanDataDao.update(sd);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+    }
+
+    /**
+     * 更新上传状态为fail和数据状态为为离线 0（建包和拆包）
+     *
+     * @param
+     */
+    public synchronized int updateState(Context context, String type, String bagNum, String barcode) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(type),
+                    ScanDataDao.Properties.BagQianNo.eq(bagNum),
+                    ScanDataDao.Properties.Barcode.eq(barcode)));
+            List<ScanData> lis = qb.build().list();
+            if (lis != null && lis.size() > 0) {
+                ScanData sd = lis.get(0);
+                sd.setIsOnline("0");
+                sd.setUpload("fail");
+                scanDataDao.update(sd);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+    }
+
+    /**
+     * 更新上传状态为true(封发车和到解车)
+     *
+     * @param
+     */
+    public synchronized int updateCarUploadState(Context context, String type, String carSign) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(type),
+                    ScanDataDao.Properties.CarQianNo.eq(carSign)));
+            List<ScanData> lis = qb.build().list();
+            if (lis != null && lis.size() > 0) {
+                ScanData sd = lis.get(0);
+                sd.setUpload("true");
+                scanDataDao.update(sd);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+    }
+
+    /**
+     * 更新上传状态为true
+     *
+     * @param
+     */
+    public synchronized int updateUploadState(Context context, String type, String barcode) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(type),
+                    ScanDataDao.Properties.Barcode.eq(barcode)));
+            List<ScanData> lis = qb.build().list();
+            if (lis != null && lis.size() > 0) {
+                ScanData sd = lis.get(0);
+                sd.setUpload("true");
+                scanDataDao.update(sd);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+    }
+
+    /**
+     * 更新上传状态为fail
+     *
+     * @param
+     */
+    public synchronized int updateUploadStates(Context context, String type, String barcode) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(type),
+                    ScanDataDao.Properties.Barcode.eq(barcode)));
+            List<ScanData> lis = qb.build().list();
+            if (lis != null && lis.size() > 0) {
+                ScanData sd = lis.get(0);
+                sd.setUpload("fail");
+                scanDataDao.update(sd);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+    }
+
+    /**
+     * 更新数据状态为离线 0
+     *
+     * @param
+     */
+    public synchronized int updateisOnlineState(Context context, String type, String barcode) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(type),
+                    ScanDataDao.Properties.Barcode.eq(barcode)));
+            List<ScanData> lis = qb.build().list();
+            if (lis != null && lis.size() > 0) {
+                ScanData sd = lis.get(0);
+                sd.setIsOnline("0");
+                scanDataDao.update(sd);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+    }
+
+    /**
+     * 更新数据状态为离线 0(封发车和到解车)
+     *
+     * @param
+     */
+    public synchronized int updateisCarOnlineState(Context context, String type, String carNo) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(type),
+                    ScanDataDao.Properties.CarQianNo.eq(carNo)));
+            List<ScanData> lis = qb.build().list();
+            if (lis != null && lis.size() > 0) {
+                ScanData sd = lis.get(0);
+                sd.setIsOnline("0");
+                scanDataDao.update(sd);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+    }
+
+    /**
+     * 更新上传状态为fail并更新数据状态为离线 0
+     *
+     * @param
+     */
+    public synchronized int updateState(Context context, String type, String barcode) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(type),
+                    ScanDataDao.Properties.Barcode.eq(barcode)));
+            List<ScanData> lis = qb.build().list();
+            if (lis != null && lis.size() > 0) {
+                ScanData sd = lis.get(0);
+                sd.setUpload("fail");
+                sd.setIsOnline("0");
+                scanDataDao.update(sd);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+    }
+
+    /**
+     * 更新上传状态为fail并更新数据状态为离线 0(封发车和到解车)
+     *
+     * @param
+     */
+    public synchronized int updateCarState(Context context, String type, String carNo) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(type),
+                    ScanDataDao.Properties.CarQianNo.eq(carNo)));
+            List<ScanData> lis = qb.build().list();
+            if (lis != null && lis.size() > 0) {
+                ScanData sd = lis.get(0);
+                sd.setUpload("fail");
+                sd.setIsOnline("0");
+                scanDataDao.update(sd);
+                return SUCCESS;
+            } else
+                return NOT_EXIST;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ERROR;
+        }
+    }
+
+    /**
+     * 获取一条数据
+     *
+     * @param context
+     * @param barcode
+     * @param scanType
+     * @param
+     * @return
+     */
+    public ScanData getAirScanData(Context context, String orderid, String barcode, String scanType, String scanStation) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.AirOrderId.eq(orderid),
+                    ScanDataDao.Properties.Barcode.eq(barcode),
+                    ScanDataDao.Properties.ScanType.eq(scanType),
+                    ScanDataDao.Properties.ScanStation.eq(scanStation)));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.get(0);
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取一条数据
+     *
+     * @param context
+     * @param barcode
+     * @param scanType
+     * @param
+     * @return
+     */
+    public ScanData getScanData(Context context, String barcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(barcode),
+                    ScanDataDao.Properties.ScanType.eq(scanType)));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.get(0);
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+    /**
+     * 获取一条数据
+     *
+     * @param context
+     * @param barcode
+     * @param scanType
+     * @param
+     * @return
+     */
+    public ScanData getScanDataUnUnpload(Context context, String barcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(barcode),
+                    ScanDataDao.Properties.ScanType.eq(scanType)),
+                    ScanDataDao.Properties.Upload.notEq("true"));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.get(0);
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取一条数据
+     *
+     * @param context
+     * @param disCode  派件员编号
+     * @param scanType
+     * @param
+     * @return
+     */
+    public List<ScanData> getScanDataByDisUser(Context context, String disCode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.DispatchUser.eq(disCode),
+                    ScanDataDao.Properties.ScanType.eq(scanType)));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取一条数据(建包)
+     *
+     * @param context
+     * @param barcode
+     * @param scanType
+     * @param
+     * @return
+     */
+    public ScanData getBBScanData(Context context, String baoSign, String barcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(barcode),
+                    ScanDataDao.Properties.BagQianNo.eq(baoSign),
+                    ScanDataDao.Properties.ScanType.eq(scanType)));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.get(0);
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取一条数据(建包)
+     *
+     * @param context
+     * @param barcode
+     * @param scanType
+     * @param
+     * @return
+     */
+    public ScanData getBBScanData1(Context context, String baoSign, String barcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(barcode),
+                    ScanDataDao.Properties.BagQianNo.eq(baoSign),
+                    ScanDataDao.Properties.ScanType.eq(scanType)),
+                    ScanDataDao.Properties.Upload.notEq("true"));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.get(0);
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取一条数据(上车)
+     *
+     * @param context
+     * @param barcode
+     * @param scanType
+     * @param
+     * @return
+     */
+    public ScanData getAboardScanData(Context context, String carSign, String barcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(barcode),
+                    ScanDataDao.Properties.CarQianNo.eq(carSign),
+                    ScanDataDao.Properties.ScanType.eq(scanType)));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.get(0);
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取一条数据(上车)
+     *
+     * @param context
+     * @param barcode
+     * @param scanType
+     * @param
+     * @return
+     */
+    public ScanData getAboardScanData1(Context context, String carSign, String barcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(barcode),
+                    ScanDataDao.Properties.CarQianNo.eq(carSign),
+                    ScanDataDao.Properties.ScanType.eq(scanType)),
+                    ScanDataDao.Properties.Upload.notEq("true"));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.get(0);
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取一条未上传数据(航空)
+     *
+     * @param context
+     * @param barcode
+     * @param scanType
+     * @param
+     * @return
+     */
+    public ScanData getFlightScanData1(Context context, String airOrderId, String barcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            if (StringUtils.isEmpty(airOrderId)) {
+                qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(barcode),
+                        ScanDataDao.Properties.ScanType.eq(scanType)),
+                        ScanDataDao.Properties.Upload.notEq("true"));
+            } else {
+                qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(barcode),
+                        ScanDataDao.Properties.AirOrderId.eq(airOrderId),
+                        ScanDataDao.Properties.ScanType.eq(scanType)),
+                        ScanDataDao.Properties.Upload.notEq("true"));
+            }
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.get(0);
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取一条数据
+     * 封发车 到解车
+     *
+     * @param context
+     * @param CarQianNo 车签号
+     * @param scanType
+     * @param
+     * @return
+     */
+    public ScanData getScanData1(Context context, String CarQianNo, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.CarQianNo.eq(CarQianNo),
+                    ScanDataDao.Properties.ScanType.eq(scanType)));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.get(0);
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取一条数据
+     * 封发车 到解车
+     *
+     * @param context
+     * @param CarQianNo 车签号
+     * @param scanType
+     * @param
+     * @return
+     */
+    public ScanData getScanData2(Context context, String CarQianNo, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.CarQianNo.eq(CarQianNo),
+                    ScanDataDao.Properties.ScanType.eq(scanType)),
+                    ScanDataDao.Properties.Upload.notEq("true"));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.get(0);
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取一条数据(封发车，到解车)
+     *
+     * @param context
+     * @param carNo
+     * @param scanType
+     * @param
+     * @return
+     */
+    public ScanData getCarScanData(Context context, String carNo, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.CarQianNo.eq(carNo),
+                    ScanDataDao.Properties.ScanType.eq(scanType)));
+            qb.where(ScanDataDao.Properties.ScanUser.eq(AppConfig.userName));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.get(0);
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取所有类型下的一条数据
+     *
+     * @param context
+     * @param barcode
+     * @param uploadState
+     * @return
+     */
+    public List<ScanData> getHasScanData(Context context, String barcode, String scanType, String uploadState) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            if (RuleUtils.isCarSign(context, barcode)) {
+                qb.where(ScanDataDao.Properties.CarQianNo.eq(barcode));
+            } else {
+                qb.where(ScanDataDao.Properties.Barcode.eq(barcode));
+            }
+            qb.where(ScanDataDao.Properties.ScanUser.eq(AppConfig.userName));
+            if (uploadState != null && (uploadState.length() > 0)) {
+                qb.where(ScanDataDao.Properties.Upload.eq(uploadState));
+            }
+            if (scanType != null && scanType.length() > 0 && !scanType.equals("全部扫描")) {
+                qb.where(ScanDataDao.Properties.ScanType.eq(scanType));
+            }
+            return qb.build().list();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取所有类型下的一条子母单数据
+     *
+     * @param context
+     * @param barcode
+     * @return List<ScanData>
+     */
+    public List<ScanData> getZMScanData(Context context, String barcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            if (RuleUtils.isCarSign(context, barcode)) {
+                qb.where(ScanDataDao.Properties.CarQianNo.eq(barcode));
+            } else {
+                qb.where(ScanDataDao.Properties.Barcode.eq(barcode));
+            }
+            qb.where(ScanDataDao.Properties.ParIndex.notEq(""));
+            qb.where(ScanDataDao.Properties.ScanUser.eq(AppConfig.userName));
+            if (scanType != null && scanType.equals("签收")) {
+                qb.where(qb.or(ScanDataDao.Properties.ScanType.eq("批量签收"),
+                        (ScanDataDao.Properties.ScanType.eq("单票签收")), (ScanDataDao.Properties.ScanType.eq("异常签收"))));
+            } else if (scanType != null && scanType.length() > 0 && !scanType.equals("全部扫描")) {
+                qb.where(ScanDataDao.Properties.ScanType.eq(scanType));
+            }
+            return qb.build().list();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取一条数据
+     *
+     * @param context
+     * @param barcode
+     * @param
+     * @param
+     * @return
+     */
+    public ScanData getScanDatabyUploadType(Context context, String barcode, String uploadType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(barcode),
+                    ScanDataDao.Properties.Upload.eq(uploadType)));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.get(0);
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取母单下的所有数据
+     *
+     * @param context
+     * @param parBarcode
+     * @param
+     * @param
+     * @return
+     */
+    public List<ScanData> getScanDatabyParBarcode(Context context, String parBarcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ParentBarcode.eq(parBarcode),
+                    ScanDataDao.Properties.ScanType.eq(scanType)));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取母单下的所有数据
+     *
+     * @param context
+     * @param parentBarcode
+     * @param scanType
+     * @return
+     */
+    public List<ScanData> getScanDataByParBarcode(Context context, String parentBarcode, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ParentBarcode.eq(parentBarcode),
+                    ScanDataDao.Properties.ScanType.eq(scanType)));
+            List<ScanData> list = qb.build().list();
+            return list;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * 获取一条数据
+     *
+     * @param context
+     * @param barcode
+     * @param scanType
+     * @param date
+     * @return
+     */
+    public ScanData getScanData(Context context, String barcode, String scanType, String date) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.Barcode.eq(barcode),
+                    ScanDataDao.Properties.ScanType.eq(scanType),
+                    ScanDataDao.Properties.Date.eq(date)));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.get(0);
+            } else
+                return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 是否存在某条未传数据
+     *
+     * @param scanData
+     * @return
+     */
+    public boolean isHasUnUploadScanData(Context context, ScanData scanData) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        String scanType = scanData.getScanType();
+        String isUpload = scanData.getUpload();
+        qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(scanType),
+                ScanDataDao.Properties.Upload.eq(isUpload)));
+        List list = qb.list();
+        if (list == null) {
+            return false;
+        }
+        return list.size() > 0;
+    }
+
+    /**
+     * 取得未上传并且扫描时间最早的num条数据
+     *
+     * @param num
+     * @return
+     */
+    public synchronized List<ScanData> getUnUploadScanData(Context context, int num) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(ScanDataDao.Properties.Upload.eq("false"));
+        qb.orderAsc(ScanDataDao.Properties.Id);
+        qb.limit(num);
+        return qb.list();
+    }
+
+    /**
+     * 获取未上传某类型的数据
+     *
+     * @param
+     * @param type
+     * @return
+     */
+    public synchronized List<ScanData> getUnUploadScanDataByType(Context context, String type) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.Upload.eq("false"),
+                    ScanDataDao.Properties.ScanType.eq(type)));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            }
+            return null;
+        } catch (Exception E) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取已上传某类型的数据
+     *
+     * @param
+     * @param type
+     * @return
+     */
+    public synchronized List<ScanData> getHasUploadScanDataByType(Context context, String type) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.Upload.eq("true"),
+                    ScanDataDao.Properties.ScanType.eq(type)));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            }
+            return null;
+        } catch (Exception E) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取未上传数据
+     *
+     * @param
+     * @param
+     * @return
+     */
+    public synchronized List<ScanData> getUnUploadScan(Context context) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(ScanDataDao.Properties.Upload.eq("false"));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            }
+            return null;
+        } catch (Exception E) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取未上传数据和上传失败的数据
+     *
+     * @param
+     * @param
+     * @return
+     */
+    public synchronized List<ScanData> getUnUploadScan1(Context context) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(ScanDataDao.Properties.Upload.notEq("true"));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            }
+            return null;
+        } catch (Exception E) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取未上传数据和上传失败的数据
+     *
+     * @param
+     * @param
+     * @return
+     */
+    public synchronized List<ScanData> getUnUploadScan1(Context context, String userCode) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(ScanDataDao.Properties.Upload.notEq("true"));
+            qb.where(ScanDataDao.Properties.ScanUser.eq(userCode));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            }
+            return null;
+        } catch (Exception E) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取未上传数据
+     *
+     * @param context
+     * @param userCode
+     * @return List<ScanData>
+     */
+    public synchronized List<ScanData> getAllUnUploadData(Context context, String userCode) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(ScanDataDao.Properties.Upload.eq("false"));
+            qb.where(ScanDataDao.Properties.ScanUser.eq(userCode));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            }
+            return null;
+        } catch (Exception E) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取上传失败数据
+     *
+     * @param context
+     * @param userCode
+     * @return List<ScanData>
+     */
+    public synchronized List<ScanData> getAllUploadFailData(Context context, String userCode) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(ScanDataDao.Properties.Upload.eq("fail"));
+            qb.where(ScanDataDao.Properties.ScanUser.eq(userCode));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            }
+            return null;
+        } catch (Exception E) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取已上传数据
+     *
+     * @param
+     * @param
+     * @return
+     */
+    public synchronized List<ScanData> getHasUploadScan(Context context) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(ScanDataDao.Properties.Upload.eq("true"));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            }
+            return null;
+        } catch (Exception E) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取上传m分钟后的数据
+     *
+     * @return
+     */
+    public synchronized List<ScanData> getHasUploadScanDataAfterScanTime(
+            Context context, int num, int m) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(ScanDataDao.Properties.Upload.eq("true"));
+        if (m > 0) {
+            m = 0 - m;
+        }
+        Date date = DateUtil.addMinus(m);
+        String dateStr = CalendaAndTime.getTimeLongWithSpe(date.getTime());
+        qb.where(ScanDataDao.Properties.Date.lt(dateStr));
+        qb.orderAsc(ScanDataDao.Properties.Id);
+
+        qb.limit(num);
+        return qb.list();
+    }
+
+    /**
+     * 获取上传m分钟后的数据
+     *
+     * @return
+     */
+    public synchronized List<ScanData> getHasUploadScanDataAfterScanTime(
+            Context context, int m) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(ScanDataDao.Properties.Upload.eq("true"));
+        if (m > 0) {
+            m = 0 - m;
+        }
+        Date date = DateUtil.addMinus(m);
+        String dateStr = CalendaAndTime.getTimeLongWithSpe(date.getTime());
+        qb.where(ScanDataDao.Properties.Date.lt(dateStr));
+        qb.orderAsc(ScanDataDao.Properties.Id);
+
+        return qb.list();
+    }
+
+    /**
+     * 获取未上传m分钟后的数据
+     *
+     * @return
+     */
+    public synchronized List<ScanData> getUnUploadScanDataAfterScanTime(
+            Context context, int num, int m) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(ScanDataDao.Properties.Upload.eq("false"));
+        if (m > 0) {
+            m = 0 - m;
+        }
+        Date date = DateUtil.addMinus(m);
+        String dateStr = CalendaAndTime.getTimeLongWithSpe(date.getTime());
+        qb.where(ScanDataDao.Properties.Date.lt(dateStr));
+        qb.orderAsc(ScanDataDao.Properties.Id);
+
+        qb.limit(num);
+        return qb.list();
+    }
+
+    /**
+     * 获取上传的数据
+     *
+     * @return
+     */
+    public synchronized List<ScanData> getHasUploadScanData(
+            Context context) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(ScanDataDao.Properties.Upload.eq("true"));
+        qb.orderAsc(ScanDataDao.Properties.Id);
+        return qb.list();
+    }
+
+    /**
+     * 获取未上传的数据
+     *
+     * @return
+     */
+    public synchronized List<ScanData> getUnUploadScanData(
+            Context context) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(ScanDataDao.Properties.Upload.eq("false"));
+        qb.orderAsc(ScanDataDao.Properties.Id);
+        return qb.list();
+    }
+
+    /**
+     * 获取某时间段内扫描的数据，分页显示
+     *
+     * @param startDate 开始日期  yyyyMMddHHmmss
+     * @param endDate   结束日期
+     * @param num       每页的数据数目
+     * @param offset    从查询结果中的第多少条记录开始往下数，直到数目达到num条就返回结果，适用于分页
+     * @return
+     */
+    public List<ScanData> getScanDataBetweenDate(Context context, String startDate,
+                                                 String endDate, int num, int offset) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+
+        qb.where(new WhereCondition.StringCondition("( date >='"
+                + startDate + "' and date <= '"
+                + endDate + "')"));
+        qb.orderDesc(ScanDataDao.Properties.Id);
+        qb.limit(num);
+        qb.offset(offset);
+        return qb.list();
+    }
+
+    /**
+     * 获取某时间段内扫描的数据，分页显示
+     *
+     * @param startDate 开始日期  yyyy-MM-dd HH:mm:ss
+     * @param endDate   结束日期
+     * @return
+     */
+    public List<ScanData> getScanDataBetweenDate(Context context, String startDate, String endDate) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(new WhereCondition.StringCondition("( date >='"
+                + startDate + "' and date <= '"
+                + endDate + "')"));
+        qb.orderDesc(ScanDataDao.Properties.Id);
+        return qb.list();
+    }
+
+    /**
+     * 获取某时间段内扫描的数据，分页显示
+     *
+     * @param startDate 开始日期  yyyy-MM-dd HH:mm:ss
+     * @param endDate   结束日期
+     * @return
+     */
+    public List<ScanData> getScanDataBetweenDate(Context context, String startDate, String endDate, String userCode) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(new WhereCondition.StringCondition("( date >='"
+                + startDate + "' and date <= '"
+                + endDate + "')"));
+        qb.where(ScanDataDao.Properties.ScanUser.eq(userCode));
+        qb.orderDesc(ScanDataDao.Properties.Id);
+        return qb.list();
+    }
+
+    /**
+     * 获取某时间段内扫描的数据，分页显示
+     *
+     * @param startDate 开始日期  yyyy-MM-dd HH:mm:ss
+     * @param endDate   结束日期
+     * @return
+     */
+    public List<ScanData> getHasScanScanDataBetweenDate(Context context, String startDate, String endDate, String scanType, int offset) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(qb.and(ScanDataDao.Properties.Date.gt(startDate),
+                (ScanDataDao.Properties.Date.lt(endDate))));
+        qb.where(ScanDataDao.Properties.ScanUser.eq(AppConfig.userName));
+        qb.where(ScanDataDao.Properties.PdaScan.eq("true"));
+        if (scanType != null && scanType.length() > 0 && !scanType.equals("全部扫描")) {
+            qb.where(ScanDataDao.Properties.ScanType.eq(scanType));
+        }
+        qb.orderDesc(ScanDataDao.Properties.Id);
+        if (offset >= 0) {
+            qb.limit(20);
+            qb.offset(offset * 20);
+        }
+        return qb.list();
+    }
+
+    /**
+     * 获取某时间段内扫描的数据，分页显示
+     *
+     * @param startDate 开始日期  yyyy-MM-dd HH:mm:ss
+     * @param endDate   结束日期
+     * @return
+     */
+    public List<ScanData> getUnuploadScanDataBetweenDate(Context context, String startDate, String endDate, String scanType, int offset) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(new WhereCondition.StringCondition("( date >='"
+                + startDate + "' and date <= '"
+                + endDate + "')"));
+        qb.where(ScanDataDao.Properties.ScanUser.eq(AppConfig.userName));
+        qb.where(ScanDataDao.Properties.Upload.eq("false"));
+        if (scanType != null && scanType.length() > 0 && !scanType.equals("全部扫描")) {
+            qb.where(ScanDataDao.Properties.ScanType.eq(scanType));
+        }
+        qb.orderDesc(ScanDataDao.Properties.Id);
+        if (offset >= 0) {
+            qb.limit(20);
+            qb.offset(offset * 20);
+        }
+        return qb.list();
+    }
+
+    /**
+     * 获取某时间段内扫描的数据，分页显示
+     *
+     * @param startDate 开始日期  yyyy-MM-dd HH:mm:ss
+     * @param endDate   结束日期
+     * @return
+     */
+    public List<ScanData> getuploadFailScanDataBetweenDate(Context context, String startDate, String endDate, String scanType, int offset) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(new WhereCondition.StringCondition("( date >='"
+                + startDate + "' and date <= '"
+                + endDate + "')"));
+        qb.where(ScanDataDao.Properties.Upload.eq("fail"));
+        qb.where(ScanDataDao.Properties.ScanUser.eq(AppConfig.userName));
+        if (scanType != null && scanType.length() > 0 && !scanType.equals("全部扫描")) {
+            qb.where(ScanDataDao.Properties.ScanType.eq(scanType));
+        }
+        qb.orderDesc(ScanDataDao.Properties.Id);
+        if (offset >= 0) {
+            qb.limit(20);
+            qb.offset(offset * 20);
+        }
+        return qb.list();
+    }
+
+    /**
+     * 列表中获取数据  只获取进入扫描界面时间点后面的数据的母单
+     *
+     * @param context
+     * @param inDate
+     * @param type
+     */
+    public ArrayList<String> getParentBarcodeAfterInDate(Context context, String inDate, String type) {
+
+        String SQL_DISTINCT = "SELECT DISTINCT " + ScanDataDao.Properties.ParentBarcode.columnName + " from SCAN_DATA" +
+                " WHERE " + ScanDataDao.Properties.ScanType.columnName + " = '" + type + "' and " +
+                ScanDataDao.Properties.Date.columnName + " >= '" + inDate + "'";
+        ArrayList<String> list = new ArrayList<>();
+        Cursor c = ScanDbManager.getDaoSession(context).getDatabase().rawQuery(SQL_DISTINCT, null);
+        try {
+            if (c.moveToFirst()) {
+                do {
+                    String string = c.getString(0);
+                    list.add(string);
+                } while (c.moveToNext());
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            c.close();
+        }
+        return list;
+    }
+
+    /**
+     * 通过母单号和类型以及进入界面的时间
+     * 列表中获取数据  只获取进入扫描界面时间点后面的数据
+     *
+     * @param context
+     * @param inDate
+     * @param type
+     */
+    public List<ScanData> getParentBarcodeAfterInDateByParCodes(Context context, String parBarcode, String inDate, String type) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ParentBarcode.eq(parBarcode),
+                    ScanDataDao.Properties.ScanType.eq(type), ScanDataDao.Properties.Date.gt(inDate)));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            }
+            return null;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+
+    }
+
+    /**
+     * 通过母单号和类型以及进入界面的时间
+     * 列表中获取数据  只获取进入扫描界面时间点后面的数据
+     *
+     * @param context
+     * @param inDate
+     * @param type
+     */
+    public List<ScanData> getParentBarcodeAfterInDateByParCode(Context context, String inDate, String type, String empCode) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(
+                    ScanDataDao.Properties.ScanType.eq(type), ScanDataDao.Properties.Date.gt(inDate),
+                    ScanDataDao.Properties.ScanUser.eq(empCode)));
+            qb.orderDesc(ScanDataDao.Properties.Id);
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            }
+            return null;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+
+    }
+
+    /**
+     * 获取一票多件中未扫的数据
+     *
+     * @param context
+     * @param scanType
+     * @return
+     */
+    public List<ScanData> getUnScanData(Context context, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.PdaScan.eq("false"),
+                    ScanDataDao.Properties.ScanType.eq(scanType)));
+            List<ScanData> list = qb.build().list();
+            return list;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+
+    }
+
+    /**
+     * 通过母单号和类型以及进入界面的时间
+     * 列表中获取数据  只获取进入扫描界面时间点后面的数据
+     *
+     * @param context
+     * @param inDate
+     * @param type
+     * @param parindex 子母单标识
+     */
+    public List<ScanData> getParentBarcodeAfterInDateByParindex(Context context, String inDate, String type, String parindex) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ParIndex.eq(parindex),
+                    ScanDataDao.Properties.ScanType.eq(type), ScanDataDao.Properties.Date.gt(inDate)));
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            }
+            return null;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+
+    }
+
+    /**
+     * 查询运单号是否重复
+     *
+     * @param context
+     * @param type
+     * @return
+     */
+    public boolean getRepeatWaybill(Context context, String barcode, String type) {
+        String SQL_DISTINCT = "SELECT " + ScanDataDao.Properties.Barcode.columnName + " from SCAN_DATA" +
+                " WHERE " + ScanDataDao.Properties.ScanType.columnName + " = '" + type + "'";
+        ArrayList<String> list = new ArrayList<>();
+        Cursor c = ScanDbManager.getDaoSession(context).getDatabase().rawQuery(SQL_DISTINCT, null);
+        try {
+            if (c.moveToFirst()) {
+                do {
+                    String string = c.getString(0);
+                    list.add(string);
+                } while (c.moveToNext());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            c.close();
+        }
+        if (list != null && list.size() > 0) {
+            if (list.contains(barcode)) {
+                return true;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * 通过包签号获取该包下的所有运单号
+     *
+     * @param context
+     * @param baoQianNo
+     * @param type
+     * @return
+     */
+    public ArrayList<String> getSignNumberDataWaybill(Context context, String baoQianNo, String type, String empCode) {
+        String SQL_DISTINCT = "SELECT " + ScanDataDao.Properties.Barcode.columnName + " from SCAN_DATA" +
+                " WHERE " + ScanDataDao.Properties.ScanType.columnName + " = '" + type + "' and " +
+                ScanDataDao.Properties.BagQianNo.columnName + " = '" + baoQianNo + "' and " +
+                ScanDataDao.Properties.ScanUser.columnName + " = '" + empCode + "'";
+        ArrayList<String> list = new ArrayList<>();
+        Cursor c = ScanDbManager.getDaoSession(context).getDatabase().rawQuery(SQL_DISTINCT, null);
+        try {
+            if (c.moveToFirst()) {
+                do {
+                    String string = c.getString(0);
+                    list.add(string);
+                } while (c.moveToNext());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            c.close();
+        }
+        return list;
+    }
+
+    /**
+     * 将未传false  在线1  数据改为离线数据
+     *
+     * @param context
+     * @param offLineState
+     * @param uplaoded
+     * @param scanType
+     */
+    public void updateNetState(Context context, String offLineState, String uplaoded, String scanType) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> queryBuilder = dao.queryBuilder();
+            queryBuilder.where(queryBuilder.and(ScanDataDao.Properties.IsOnline.eq("1"),
+                    ScanDataDao.Properties.ScanType.eq(scanType),
+                    ScanDataDao.Properties.Upload.eq("false")));
+            List<ScanData> list = queryBuilder.build().list();
+            if (list != null && list.size() > 0) {
+                for (ScanData scanData : list) {
+                    scanData.setUpload("fail");
+                    scanData.setIsOnline("0");
+                }
+                ScanDataDaoOpe.getInstance().updateBatchData(context, list);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void updateBatchData(Context context, List<ScanData> list) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            dao.updateInTx(list);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 通过车签号获取该车下的所有包和运单号
+     *
+     * @param context
+     * @param cheQianNo
+     * @param type
+     * @return
+     */
+    public ArrayList<String> getCarNoDataWaybill(Context context, String cheQianNo, String type, String empCode) {
+        String SQL_DISTINCT = "SELECT " + ScanDataDao.Properties.Barcode.columnName + " from SCAN_DATA" +
+                " WHERE " + ScanDataDao.Properties.ScanType.columnName + " = '" + type + "' and " +
+                ScanDataDao.Properties.CarQianNo.columnName + " = '" + cheQianNo + "' and " +
+                ScanDataDao.Properties.ScanUser.columnName + " = '" + empCode + "'";
+        ArrayList<String> list = new ArrayList<>();
+        Cursor c = ScanDbManager.getDaoSession(context).getDatabase().rawQuery(SQL_DISTINCT, null);
+        try {
+            if (c.moveToFirst()) {
+                do {
+                    String string = c.getString(0);
+                    list.add(string);
+                } while (c.moveToNext());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            c.close();
+        }
+        return list;
+    }
+
+    /**
+     * 通过航空订单号获取该航班下的所有包和运单号
+     *
+     * @param context
+     * @param type
+     * @return
+     */
+    public ArrayList<String> getFlightIdDataWaybill(Context context, String flightId, String type, String empCode) {
+        String SQL_DISTINCT = "SELECT " + ScanDataDao.Properties.Barcode.columnName + " from SCAN_DATA" +
+                " WHERE " + ScanDataDao.Properties.ScanType.columnName + " = '" + type + "' and " +
+                ScanDataDao.Properties.AirOrderId.columnName + " = '" + flightId + "' and " +
+                ScanDataDao.Properties.ScanUser.columnName + " = '" + empCode + "'";
+        ArrayList<String> list = new ArrayList<>();
+        Cursor c = ScanDbManager.getDaoSession(context).getDatabase().rawQuery(SQL_DISTINCT, null);
+        try {
+            if (c.moveToFirst()) {
+                do {
+                    String string = c.getString(0);
+                    list.add(string);
+                } while (c.moveToNext());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            c.close();
+        }
+        return list;
+    }
+
+    public List<ScanData> getOneCarNoDataWaybills(Context context, String cheQianNo, String type) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> queryBuilder = dao.queryBuilder();
+            queryBuilder.where(queryBuilder.and(ScanDataDao.Properties.CarQianNo.eq(cheQianNo),
+                    ScanDataDao.Properties.ScanType.eq(type)));
+            List<ScanData> list = queryBuilder.build().list();
+            return list;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
+     * 根据类型以及用户查询扫描的数据
+     *
+     * @param context
+     * @param type
+     */
+    public String getCountByTypeAndEmpCode(Context context, String inDate, String type, String empCode) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(
+                    ScanDataDao.Properties.ScanType.eq(type), ScanDataDao.Properties.Date.gt(inDate),
+                    ScanDataDao.Properties.ScanUser.eq(empCode)));
+            qb.orderDesc(ScanDataDao.Properties.Id);
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list.size() + "";
+            }
+            return "0";
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "0";
+        }
+
+    }
+
+    /**
+     * 通过单号和类型取出数据
+     *
+     * @param context
+     * @param barcode
+     * @param opCode
+     * @return
+     */
+    public ScanData getDataByType(Context context, String barcode, int opCode) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> queryBuilder = dao.queryBuilder();
+            queryBuilder.where(queryBuilder.and(ScanDataDao.Properties.Barcode.eq(barcode),
+                    ScanDataDao.Properties.OpCode.eq(opCode)));
+            List<ScanData> list = queryBuilder.build().list();
+            return list != null && list.size() > 0 ? list.get(0) : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
+     * 查询一条车签号
+     *
+     * @param context
+     * @param cheQianNo
+     * @param upState
+     * @return
+     */
+    public List<ScanData> getOneCarNoData(Context context, String cheQianNo, String upState) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> queryBuilder = dao.queryBuilder();
+            queryBuilder.where(queryBuilder.and(ScanDataDao.Properties.CarQianNo.eq(cheQianNo), ScanDataDao.Properties.ScanUser.eq(AppConfig.userName)));
+            if (upState != null && (upState.length() > 0)) {
+                queryBuilder.where(ScanDataDao.Properties.Upload.eq(upState));
+            }
+            return queryBuilder.build().list();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
+     * 获取此次进入页面扫描的所有数据
+     *
+     * @param context
+     * @param inDate
+     * @param type
+     * @return
+     */
+    public List<ScanData> getScanListData(Context context, String inDate, String type, String empCode) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(type), ScanDataDao.Properties.Date.gt(inDate),
+                    ScanDataDao.Properties.ScanUser.eq(empCode)));
+            qb.orderDesc(ScanDataDao.Properties.Id);
+            List<ScanData> list = qb.build().list();
+            if (list != null && list.size() > 0) {
+                return list;
+            }
+            return null;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * 获取包内单条数据
+     *
+     * @param bagNum
+     * @param barcode
+     * @param scanType
+     * @return
+     */
+    public ScanData getPackageData(Context context, String bagNum, String barcode, String scanType) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.BagQianNo.eq(bagNum),
+                    ScanDataDao.Properties.Barcode.eq(barcode),
+                    ScanDataDao.Properties.ScanType.eq(scanType)));
+            List<ScanData> list = qb.build().list();
+            return list != null && list.size() > 0 ? list.get(0) : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * 获取车内单条数据
+     *
+     * @param carSign
+     * @param barcode
+     * @param scanType
+     * @return
+     */
+    public ScanData getCarData(Context context, String carSign, String barcode, String scanType) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.CarQianNo.eq(carSign),
+                    ScanDataDao.Properties.Barcode.eq(barcode),
+                    ScanDataDao.Properties.ScanType.eq(scanType)));
+            List<ScanData> list = qb.build().list();
+            return list != null && list.size() > 0 ? list.get(0) : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * 获取航空单条数据
+     *
+     * @param flightOrderId
+     * @param barcode
+     * @param scanType
+     * @return
+     */
+    public ScanData getFlightScanData(Context context, String flightOrderId, String barcode, String scanType) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.AirOrderId.eq(flightOrderId),
+                    ScanDataDao.Properties.Barcode.eq(barcode),
+                    ScanDataDao.Properties.ScanType.eq(scanType)));
+            List<ScanData> list = qb.build().list();
+            return list != null && list.size() > 0 ? list.get(0) : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * 获取离线未上传的数据
+     *
+     * @param context
+     * @return
+     */
+    public List<ScanData> getUnlineUnuploadData(Context context) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.IsOnline.eq("0"),
+                    ScanDataDao.Properties.Upload.notEq("true")));
+            List<ScanData> list = qb.build().list();
+            return list != null && list.size() > 0 ? list : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
+     * 离线状态下查询数据(航空操作)
+     *
+     * @return
+     */
+    public ScanData getUnlineAirData(Context context, String Barcode, String ScanType, String ScanStation) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(qb.and(
+                ScanDataDao.Properties.Barcode.eq(Barcode),
+                ScanDataDao.Properties.ScanType.eq(ScanType),
+                ScanDataDao.Properties.ScanStation.eq(ScanStation)));
+        qb.orderDesc(ScanDataDao.Properties.Id);
+        List<ScanData> list = qb.build().list();
+        return list != null && list.size() > 0 ? list.get(0) : null;
+    }
+
+    /**
+     * 离线状态下查询数据(航空操作)
+     *
+     * @return
+     */
+    public ScanData getUnlineData(Context context, String Barcode, String ScanType) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(qb.and(
+                ScanDataDao.Properties.Barcode.eq(Barcode),
+                ScanDataDao.Properties.ScanType.eq(ScanType)));
+        qb.orderDesc(ScanDataDao.Properties.Id);
+        List<ScanData> list = qb.build().list();
+        return list != null && list.size() > 0 ? list.get(0) : null;
+    }
+
+    /**
+     * 获取一条离线未上传的数据
+     *
+     * @param context
+     * @return
+     */
+    public ScanData getOneUnlineUnuploadData(Context context) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.IsOnline.eq("0"),
+                    ScanDataDao.Properties.Upload.notEq("true")));
+            qb.limit(1);
+            List<ScanData> list = qb.build().list();
+            return list != null && list.size() > 0 ? list.get(0) : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
+     * 获取一条离线未上传的数据
+     *
+     * @param context
+     * @return
+     */
+    public ScanData getOneUnlineUnuploadData(Context context, int count, int offset) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.IsOnline.eq("0"),
+                    ScanDataDao.Properties.Upload.notEq("true"),
+                    ScanDataDao.Properties.UploadFileCount.lt(count)));
+            qb.limit(1);
+            qb.offset(offset);
+            List<ScanData> list = qb.build().list();
+            return list != null && list.size() > 0 ? list.get(0) : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+
+    /**
+     * 获取在线未上传的数据
+     * 一条数据
+     *
+     * @param context
+     * @return
+     */
+    public ScanData getOnlineUnuploadData(Context context) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.IsOnline.eq("1"),
+                    ScanDataDao.Properties.Upload.notEq("true")));
+            qb.limit(1);
+            List<ScanData> list = qb.build().list();
+            return list != null && list.size() > 0 ? list.get(0) : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
+     * 获取未上传的数据
+     * 一条数据
+     *
+     * @param context
+     * @return
+     */
+    public ScanData getUnuploadData(Context context) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(ScanDataDao.Properties.Upload.notEq("true"));
+            qb.orderAsc(ScanDataDao.Properties.Id);
+            qb.limit(1);
+            List<ScanData> list = qb.build().list();
+            return list != null && list.size() > 0 ? list.get(0) : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
+     * 获取未上传的数据
+     * 一条数据
+     *
+     * @param context
+     * @param count   失败次数
+     * @param num     取出的件数
+     * @return
+     */
+    public List<ScanData> getUnuploadDataByUploadCount(Context context, int count, int num) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.Upload.notEq("true"),
+                    ScanDataDao.Properties.UploadFileCount.lt(count)));
+            qb.orderAsc(ScanDataDao.Properties.Id);
+            qb.limit(num);
+            List<ScanData> list = qb.build().list();
+            return list != null && list.size() > 0 ? list : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
+     * 获取未上传的数据
+     * 一条数据
+     *
+     * @param context
+     * @return
+     */
+    public List<ScanData> getUnuploadData(Context context, int count) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(ScanDataDao.Properties.Upload.notEq("true"));
+            qb.orderAsc(ScanDataDao.Properties.Id);
+            qb.limit(count);
+            List<ScanData> list = qb.build().list();
+            return list != null && list.size() > 0 ? list : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
+     * 获取某时间段内子母件扫描的数据，分页显示
+     *
+     * @param startDate 开始日期  yyyy-MM-dd HH:mm:ss
+     * @param endDate   结束日期
+     * @return
+     */
+    public List<ScanData> getZMScanScanDataBetweenDate(Context context, String startDate, String endDate, String scanType, int offset) {
+        QueryBuilder<ScanData> qb = ScanDbManager.getDaoSession(context).getScanDataDao()
+                .queryBuilder();
+        qb.where(qb.and(ScanDataDao.Properties.Date.gt(startDate),
+                (ScanDataDao.Properties.Date.lt(endDate))));
+        qb.where(ScanDataDao.Properties.ScanUser.eq(AppConfig.userName));
+        qb.where(ScanDataDao.Properties.ParIndex.notEq(""));
+        if (scanType != null && scanType.equals("签收")) {
+            qb.where(qb.or(ScanDataDao.Properties.ScanType.eq("批量签收"),
+                    (ScanDataDao.Properties.ScanType.eq("单票签收")), (ScanDataDao.Properties.ScanType.eq("异常签收"))));
+        } else if (scanType != null && scanType.length() > 0 && !scanType.equals("全部扫描")) {
+            qb.where(ScanDataDao.Properties.ScanType.eq(scanType));
+        }
+        qb.orderDesc(ScanDataDao.Properties.Id);
+        if (offset >= 0) {
+            qb.limit(99);
+            qb.offset(offset * 99);
+        }
+        return qb.list();
+    }
+
+    /**
+     * 获取批量取件子母件数据
+     *
+     * @param
+     * @param
+     * @return
+     */
+    public synchronized List<ScanData> getBPScan(Context context, String data, String scanType, String empCode) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            if (!TextUtils.isEmpty(scanType) && scanType.equals("签收")) {
+                qb.where(qb.or(ScanDataDao.Properties.ScanType.eq("批量签收"), ScanDataDao.Properties.ScanType.eq("单票签收")), ScanDataDao.Properties.ScanType.eq("异常签收"));
+            } else {
+                qb.where(ScanDataDao.Properties.ScanType.eq(scanType));
+            }
+            qb.where(ScanDataDao.Properties.ScanUser.eq(empCode),
+                    ScanDataDao.Properties.ParIndex.notEq(""));
+            List<ScanData> list = qb.build().list();
+            List<ScanData> listscan = new ArrayList<>();
+            if (list != null && list.size() > 0) {
+                for (ScanData scanData : list) {
+                    if (StringUtils.getDigit(scanData.getBarcode()).equals(data)) {
+                        listscan.add(scanData);
+                    }
+                }
+                if (listscan != null && listscan.size() > 0) {
+                    return listscan;
+                }
+            }
+            return null;
+        } catch (Exception E) {
+            return null;
+        }
+    }
+
+    /**
+     * 、
+     * 航空
+     * 根据主单号，登录人，opcode查询是否存在数据
+     *
+     * @param context
+     * @param employeeCode
+     * @param opcode
+     * @param orderid
+     * @return
+     */
+    public List<ScanData> getDataByOrderCode(Context context, String employeeCode, String opcode, String orderid) {
+        try {
+            ScanDataDao dao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = dao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.OpCode.eq(opcode),
+                    ScanDataDao.Properties.ScanUser.eq(employeeCode),
+                    ScanDataDao.Properties.AirOrderId.eq(orderid)));
+            List<ScanData> list = qb.build().list();
+            return list;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * 通过类型获取扫描数据
+     *
+     * @param context
+     * @return
+     */
+    public List<ScanData> getScanDataByScanType(Context context, String scantype, String scanUser) {
+        try {
+            ScanDataDao scanDataDao = ScanDbManager.getDaoSession(context).getScanDataDao();
+            QueryBuilder<ScanData> qb = scanDataDao.queryBuilder();
+            qb.where(qb.and(ScanDataDao.Properties.ScanType.eq(scantype), ScanDataDao.Properties.ScanUser.eq(scanUser)));
+            List<ScanData> list = qb.build().list();
+            return list != null && list.size() > 0 ? list : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+}
+  /**
+     * 上传数据
+     *
+     * @param url
+     * @param map
+     * @param scanData
+     */
+    public void uploadData(final String url, Map<Object, Object> map, final ScanData scanData) {
+//        Log.e("555555555555","5555555555555555");
+        //final long seed1 = trafficInfo.getTrafficInfo();
+        OkGo.post(url).headers("token", getToken(scanData))
+                .params("logistics_interface", GsonConvertUtils.toJson(map))
+                .params("data_digest", getYTOSign(map, MD5Utils.YTO_KEY1))
+                .params("from_code", "pda")
+                .execute(new YTOJsonCallBack<YTOResponseDataBean<YTOResponseNullBean>>() {
+                    @Override
+                    public void onSuccess(YTOResponseDataBean<YTOResponseNullBean> bean, Call call, Response response) {
+                        super.onSuccess(bean, call, response);
+//                        Log.e("离线上传",scanData.getScanType()+"_success");
+                        Logger.saveOperateData(UploadDataService.this, "离线上传:" + CalendaAndTime.getTimeLongWithSpe() + "\n" + scanData.getScanType() + "上传成功,单号=" + scanData.getBarcode() + ",上传状态=" + bean.code, AppConfig.DEFAULT_UPLOAD_RESULT_PATH);
+                        scanData.setUpload("true");
+                        ScanDataDaoOpe.getInstance().updateScanData1(UploadDataService.this, scanData);
+                        if (AppConfig.barcodeHasNoUploadCount > 0) {
+                            AppConfig.barcodeHasNoUploadCount--;
+                        }
+                        i = 0;
+                        offset++;
+                        UploadDataService.this.sendBroadcast(new Intent(BaseActivity.ACTION_UPLOADUNLINEDATASUCCESS_ACTIVITY));
+                        dealData();
+                    }
+
+                    @Override
+                    public void onError(Call call, Response response, Exception e) {
+                        super.onError(call, response, e);
+                        i++;
+
+                        int error = ErrorOperation(e);
+//                        Log.e("离线上传",scanData.getScanType()+"_error__"+error);
+                        if (error == 1) {
+//                            Log.e("888888888888","888888888888888");
+                            scanData.setUploadFileCount(i);
+                            scanData.setUpload("fail");
+                            scanData.setUpFailReason("服务器内部错误");
+                            ScanDataDaoOpe.getInstance().updateScanData1(UploadDataService.this, scanData);
+                            if (i == 3) {
+//                                Log.e("999999999999","999999999999999");
+                                i = 0;
+                            }
+                            Logger.saveOperateData(UploadDataService.this, "离线上传:" + CalendaAndTime.getTimeLongWithSpe() + "\n" + "error = " + error + "URL =" + url + scanData.getScanType() + "," + scanData.getBarcode() + "," + scanData.getDate() + "," + "服务器内部错误", AppConfig.DEFAULT_UPLOAD_RESULT_PATH);
+
+                        } else if (error == 2) {
+//                            Log.e("10101010101010","10101010101010");
+                            scanData.setUploadFileCount(i);
+                            scanData.setUpload("fail");
+                            scanData.setUpFailReason("登录失效");
+                            ScanDataDaoOpe.getInstance().updateScanData1(UploadDataService.this, scanData);
+                            if (i == 3) {
+//                                Log.e("十一十一十一十一十一","十一十一十一十一十一");
+                                i = 0;
+                            }
+                            Logger.saveOperateData(UploadDataService.this, "离线上传:" + CalendaAndTime.getTimeLongWithSpe() + "\n" + "error = " + error + "URL =" + url + scanData.getScanType() + "," + scanData.getBarcode() + "," + scanData.getDate() + "," + "登录失效", AppConfig.DEFAULT_UPLOAD_RESULT_PATH);
+
+                        } else if (error == 3) {
+//                            Log.e("121212121212","121212121212");
+                            scanData.setUpload("fail");
+                            scanData.setUploadFileCount(i);
+                            scanData.setUpFailReason("请求超时");
+                            ScanDataDaoOpe.getInstance().updateScanData1(UploadDataService.this, scanData);
+                            if (i == 3) {
+//                                Log.e("131313131313","131313131313");
+                                i = 0;
+                            }
+                            Logger.saveOperateData(UploadDataService.this, "离线上传:" + CalendaAndTime.getTimeLongWithSpe() + "\n" + "error = " + error + "URL =" + url + scanData.getScanType() + "," + scanData.getBarcode() + "," + scanData.getDate() + "," + "请求超时", AppConfig.DEFAULT_UPLOAD_RESULT_PATH);
+
+                        } else if (error == 4) {
+//                            Log.e("141414141414","141414141414");
+                            scanData.setUpload("fail");
+                            scanData.setUploadFileCount(i);
+                            scanData.setUpFailReason("连接服务器失败");
+                            ScanDataDaoOpe.getInstance().updateScanData1(UploadDataService.this, scanData);
+                            if (i == 3) {
+//                                Log.e("15151515151515","1515151515151515");
+                                i = 0;
+                            }
+                            Logger.saveOperateData(UploadDataService.this, "离线上传:" + CalendaAndTime.getTimeLongWithSpe() + "\n" + "error = " + error + "URL =" + url + scanData.getScanType() + "," + scanData.getBarcode() + "," + scanData.getDate() + "," + "连接服务器失败", AppConfig.DEFAULT_UPLOAD_RESULT_PATH);
+
+                        } else {
+//                            Log.e("16161616161616","16161616161616");
+                            int re = ScanDataDaoOpe.getInstance().deleteData(UploadDataService.this, scanData);
+                            Logger.saveOperateData(UploadDataService.this, "离线上传:" + CalendaAndTime.getTimeLongWithSpe() +
+                                            "\n" + "error = " + error + "URL =" + url + scanData.getScanType() + "," +
+                                            scanData.getBarcode() + "," + scanData.getDate() + "," + e.toString(),
+                                    AppConfig.DEFAULT_UPLOAD_RESULT_PATH);
+
+                            if (AppConfig.barcodeHasNoUploadCount > 0) {
+                                AppConfig.barcodeHasNoUploadCount--;
+                            }
+                            i = 0;
+                        }
+                        offset++;
+                        UploadDataService.this.sendBroadcast(new Intent(BaseActivity.ACTION_UPLOADUNLINEDATASUCCESS_ACTIVITY));
+                        dealData();
+                    }
+                });
+    }
+    
+     private class MyThread extends Thread {
+        @Override
+        public void run() {
+            while (true) {
+                try {
+                    if (DeviceNetUtil.isNetworkConnected(UploadDataService.this)) {
+//                        Log.e("11111111111111","11111111111111");
+                        if (isStart) {
+//                            Log.e("22222222222","2222222222222");
+                            isStart = false;
+                            dealData();
+//                            Log.e("3333333333333333","33333333333333333");
+                        }
+                    }
+                    // 每10秒检测一次
+                    Thread.sleep(10000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
