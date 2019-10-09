@@ -1,0 +1,11 @@
+//报错定位：gradlew compileDebugSources --stacktrace -info
+
+
+增的branch：git fetch
+adb tcpip 5555
+adb -s 设备编号 install apk的完整路径
+adb shell logcat>e:/1.log
+先adb shell     cd /sdcard     ls     adb pull /sdcard/文件名  电脑上的文件夹路径
+
+adb kill-server --停止adb服务
+adb start-server --开启adb服务
