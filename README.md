@@ -95,3 +95,8 @@ okhttp+retrofit2+Rx和OkGo+Rx二选一
     
 //版本控制
 https://www.jianshu.com/p/a9f8e9346495
+
+https://github.com/mengzhinan/PhoneScreenMatch
+    360*720
+    375*720
+    375*812
